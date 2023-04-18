@@ -27,7 +27,6 @@ function encode(obj) {
   };
   const jsonStr = JSON.stringify(newObj);
   const binaryData = new TextEncoder().encode(jsonStr);
-  console.log(binaryData);
   const base64 = btoa(String.fromCharCode(...binaryData));
   return base64;
 }
