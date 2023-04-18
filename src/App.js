@@ -20,24 +20,34 @@ const fetchChampionData = async (latestPatchVersion) => {
   return data;
 };
 
-const encodeDraft = (draftedChampions, draftName) => {
-  const keys = draftedChampions.map((champion) => champion.key);
-  const data = { keys, draftName };
-  return btoa(JSON.stringify(data));
-};
-
-const decodeDraft = (encodedDraft, championData) => {
-  const jsonString = atob(encodedDraft);
-  const decodedData = JSON.parse(jsonString);
-  const decodedChampions = decodedData.keys.map((key) =>
-    Object.values(championData).find((champion) => champion.key === key)
-  );
-
-  return {
-    draftedChampions: decodedChampions,
-    draftName: decodedData.draftName
+function encode(obj) {
+  const newObj = {
+    k: obj.keys.map((champion) => Number(champion.key)),
+    n: obj.draftName,
   };
-};
+  const jsonStr = JSON.stringify(newObj);
+  const binaryData = new TextEncoder().encode(jsonStr);
+  console.log(binaryData);
+  const base64 = btoa(String.fromCharCode(...binaryData));
+  return base64;
+}
+
+function decode(base64, championData) {
+  const binaryData = atob(base64)
+    .split("")
+    .map((c) => c.charCodeAt(0));
+  const jsonStr = new TextDecoder().decode(new Uint8Array(binaryData));
+  const newObj = JSON.parse(jsonStr);
+  const originalObj = {
+    draftedChampions: newObj.k.map((key) =>
+      Object.values(championData).find(
+        (champion) => champion.key === key.toString()
+      )
+    ),
+    draftName: newObj.n,
+  };
+  return originalObj;
+}
 
 const getTagChampions = (champions) =>
   ["Assassin", "Fighter", "Mage", "Marksman", "Support", "Tank"].reduce(
@@ -62,7 +72,7 @@ const copyContent = async (text) => {
 };
 
 const TagInput = memo(
-  ({ championData, tag, tagCount, scaledTagCounts, updateTagCountTotal }) => (
+  ({ tag, tagCount, scaledTagCounts, updateTagCountTotal }) => (
     <div className="label-input-wrapper">
       <label htmlFor={`tagCount-${tag}`}>
         {tag} ({tagCount[tag]} total):
@@ -71,15 +81,29 @@ const TagInput = memo(
         id={`tagCount-${tag}`}
         type="number"
         min="0"
-        max={championData?.length}
+        max={tagCount[tag]}
         value={scaledTagCounts?.[tag]}
-        onChange={(event) =>
-          updateTagCountTotal(event?.target?.value || 0, tag)
-        }
+        onChange={(event) => updateTagCountTotal(event?.target?.value, tag)}
       />
     </div>
   )
 );
+
+const WarningNotifications = ({ warnings, removeWarning }) => {
+  return (
+    <div className="warning-notifications">
+      {warnings.map(({ id, message }) => (
+        <div
+          key={id}
+          className="warning-notification"
+          onClick={() => removeWarning(id)}
+        >
+          {message}
+        </div>
+      ))}
+    </div>
+  );
+};
 
 const ChampionCard = ({ champion, latestPatchVersion }) => (
   <a
@@ -91,7 +115,7 @@ const ChampionCard = ({ champion, latestPatchVersion }) => (
       <div
         className="champion-splash"
         style={{
-          backgroundImage: `url(https://ddragon.leagueoflegends.com/cdn/${latestPatchVersion}/img/champion/${champion.image.full})`
+          backgroundImage: `url(https://ddragon.leagueoflegends.com/cdn/${latestPatchVersion}/img/champion/${champion.image.full})`,
         }}
         aria-label={`${champion.name} splash art`}
       >
@@ -112,14 +136,20 @@ export default function App() {
   const [scaledTagCounts, setScaledTagCounts] = useState({});
   const [draftedChampions, setDraftedChampions] = useState([]);
   const [draftName, setDraftName] = useState("");
+  const [warnings, setWarnings] = useState([]);
 
   const location = useLocation();
+
+  const removeWarning = (id) => {
+    const newWarnings = warnings.filter((warning) => warning.id !== id);
+    setWarnings(newWarnings);
+  };
 
   const { data: latestPatchVersion, isLoading: isPatchLoading } = useQuery(
     "latestPatchVersion",
     fetchLatestPatchVersion,
     {
-      cacheTime: 60 * 60 * 1000 // one hour
+      cacheTime: 60 * 60 * 1000, // one hour
     }
   );
   const { data: championData, isLoading: isChampionLoading } = useQuery(
@@ -127,7 +157,7 @@ export default function App() {
     () => fetchChampionData(latestPatchVersion),
     {
       enabled: !!latestPatchVersion,
-      cacheTime: 14 * 24 * 60 * 60 * 1000 // two weeks
+      cacheTime: 14 * 24 * 60 * 60 * 1000, // two weeks
     }
   );
 
@@ -172,7 +202,7 @@ export default function App() {
         tag,
         scaledTagCount > Math.round(scaledTagCount)
           ? scaledTagCount - Math.floor(scaledTagCount)
-          : scaledTagCount - Math.ceil(scaledTagCount)
+          : scaledTagCount - Math.ceil(scaledTagCount),
       ];
     });
 
@@ -198,13 +228,23 @@ export default function App() {
   }, []);
 
   const draftChampionsNoTagRestrictions = (champions) => {
-    const availableChampions = [...champions];
+    const availableChampions = Object.values(champions);
 
-    const selectedChampions = Array.from({ length: championPoolSize }, () => {
-      const randomIndex = Math.floor(Math.random() * availableChampions.length);
-      const [champion] = availableChampions.splice(randomIndex, 1);
-      return champion;
-    });
+    const selectedChampions = Array.from(
+      {
+        length:
+          championPoolSize <= availableChampions.length
+            ? championPoolSize
+            : availableChampions.length,
+      },
+      () => {
+        const randomIndex = Math.floor(
+          Math.random() * availableChampions.length
+        );
+        const [champion] = availableChampions.splice(randomIndex, 1);
+        return champion;
+      }
+    );
 
     setDraftedChampions(
       selectedChampions.sort((a, b) => a.name.localeCompare(b.name))
@@ -213,23 +253,41 @@ export default function App() {
 
   const draftChampions = (champions) => {
     const tagChampions = getTagChampions(champions);
+    const newWarnings = [];
 
     const draftedSet = new Set();
 
     const draftedChamps = Object.entries(scaledTagCounts).reduce(
       (drafted, [tag, count]) => {
-        const availableChampions = tagChampions[tag].filter(
+        let availableChampions = tagChampions[tag].filter(
           (champ) => !draftedSet.has(champ.key)
         );
 
-        const champs = Array.from({ length: count }, () => {
+        let champs = [];
+        while (champs.length < count) {
+          if (availableChampions.length === 0) {
+            break;
+          }
+
           const randomIndex = Math.floor(
             Math.random() * availableChampions.length
           );
           const [champion] = availableChampions.splice(randomIndex, 1);
           draftedSet.add(champion.key);
-          return champion;
-        });
+          champs.push(champion);
+
+          // Update the availableChampions for the current tag
+          availableChampions = tagChampions[tag].filter(
+            (champ) => !draftedSet.has(champ.key)
+          );
+        }
+
+        if (champs.length < count) {
+          newWarnings.push({
+            id: crypto.randomUUID(),
+            message: `Could only draft ${champs.length} champions with class ${tag} instead of the requested ${count}`,
+          });
+        }
 
         return [...drafted, ...champs];
       },
@@ -239,6 +297,7 @@ export default function App() {
     setDraftedChampions(
       draftedChamps.sort((a, b) => a.name.localeCompare(b.name))
     );
+    setWarnings(newWarnings);
   };
 
   function countTags(champions) {
@@ -252,19 +311,23 @@ export default function App() {
   }
 
   const updateTagCountTotal = (value, tag) => {
+    const updatedValue = value === "" ? "" : parseInt(value, 10);
     const updatedTagCounts = {
       ...scaledTagCounts,
-      [tag]: parseInt(value, 10)
+      [tag]: updatedValue,
     };
     setScaledTagCounts(updatedTagCounts);
     setChampionPoolSize(
-      Object.values(updatedTagCounts).reduce((sum, count) => sum + count, 0)
+      Object.values(updatedTagCounts).reduce(
+        (sum, count) => sum + (count || 0),
+        0
+      )
     );
   };
 
   const updateTotalCount = (value) => {
-    const newSize = parseInt(value, 10);
-    const newScaledTagCounts = updateScaledTagCounts(newSize, tagCount);
+    const newSize = value === "" ? "" : parseInt(value, 10);
+    const newScaledTagCounts = updateScaledTagCounts(newSize || 0, tagCount);
     setScaledTagCounts(newScaledTagCounts);
     setChampionPoolSize(newSize);
   };
@@ -295,7 +358,7 @@ export default function App() {
       Object.keys(championData).length !== 0
     ) {
       try {
-        const { draftedChampions, draftName } = decodeDraft(
+        const { draftedChampions, draftName } = decode(
           encodedDraft,
           championData
         );
@@ -311,7 +374,7 @@ export default function App() {
   }, [championData, setInitialInputValues, location.search]);
 
   const handleCopyDraftUrl = async () => {
-    const encodeedData = encodeDraft(draftedChampions, draftName);
+    const encodeedData = encode({ keys: draftedChampions, draftName });
     const url = `${window.location.origin}${window.location.pathname}?data=${encodeedData}`;
     await copyContent(url);
   };
@@ -320,6 +383,7 @@ export default function App() {
 
   return (
     <main>
+      <WarningNotifications warnings={warnings} removeWarning={removeWarning} />
       <div className="container">
         <section>
           <label htmlFor="draftName">Draft Name: </label>

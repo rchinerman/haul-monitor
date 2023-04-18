@@ -229,6 +229,27 @@ fieldset {
   margin-bottom: 0;
 }
 
+.warning-notifications {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1000;
+}
+
+.warning-notification {
+  background-color: var(--accent-color);
+  border-radius: var(--default-border-radius);
+  color: #ffffff;
+  font-weight: bold;
+  padding: 0.5rem 1rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  transition: opacity 0.3s, transform 0.3s;
+  cursor: pointer;
+}
+
 @media (max-width: 630px) {
   form {
     grid-template-columns: 1fr;
